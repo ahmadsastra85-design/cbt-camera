@@ -50,9 +50,8 @@ let monitoringEnabled = false;
 let phoneEventCount = 0;
 let phoneAbsentFrames = 0;
 let phoneEventPending = false;
+let pendingPhoneEventId = null;
 let phoneRearmed = true;
-let pendingPhonePayload = null;
-let lastPhoneSendAt = 0;
 const PHONE_ABSENT_FRAMES_TO_RESET = 4;
 const CAMERA_ORIGIN = window.location.origin;
 const OBJECT_DETECTION_INTERVAL_MS = 500;
@@ -67,20 +66,17 @@ function setObjectStatus(message, detected=false) {
   objectStatusBox.textContent = message;
   objectStatusBox.classList.toggle('detected', detected);
 }
-function startObjectDetection() {
+function startObjectDetection(initialEventCount=0) {
   if (objectDetectionTimer) clearInterval(objectDetectionTimer);
   lastObjectDetectionAt = 0;
   consecutivePhoneFrames = 0;
   phoneAbsentFrames = 0;
   phoneEventPending = false;
-  pendingPhonePayload = null;
   phoneRearmed = true;
-  monitoringEnabled = true;
+  phoneEventCount = Math.max(0, Math.min(2, Number(initialEventCount) || 0));
+  monitoringEnabled = phoneEventCount < 2;
   setObjectStatus('Pemantauan HP aktif. Gambar diproses sementara di perangkat; tidak ada video yang direkam atau disimpan.');
   objectDetectionTimer = setInterval(() => {
-    if (phoneEventPending && pendingPhonePayload && performance.now()-lastPhoneSendAt>5000) {
-      sendToParent(pendingPhonePayload); lastPhoneSendAt=performance.now();
-    }
     if (!monitoringEnabled || !objectDetector || !stream || video.readyState < 2) return;
     const now = performance.now();
     if (now - lastObjectDetectionAt < OBJECT_DETECTION_INTERVAL_MS) return;
@@ -95,7 +91,7 @@ function startObjectDetection() {
       if (phone) {
         phoneAbsentFrames = 0;
         consecutivePhoneFrames += 1;
-        const confidence = Number(phone.categories[0].score);
+        const confidence = Math.round(Number(phone.categories[0].score) * 100);
         if (consecutivePhoneFrames >= PHONE_REQUIRED_CONSECUTIVE_FRAMES) {
           if (phoneEventCount < 2 && !phoneEventPending && phoneRearmed) {
             phoneEventCount += 1;
@@ -106,27 +102,25 @@ function startObjectDetection() {
             try {
               if (phoneEventCount === 1) photoDataUrl = captureFacePhoto();
             } catch (captureError) {
-              phoneEventCount -= 1;
-              phoneEventPending = false;
-              phoneRearmed = true;
-              monitoringEnabled = true;
               setObjectStatus('HP terdeteksi, tetapi foto bukti gagal diambil: ' + (captureError?.message || String(captureError)), true);
-              return;
             }
-            pendingPhonePayload = {
-              eventId:crypto.randomUUID(),
+            if (!pendingPhoneEventId) {
+              pendingPhoneEventId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+                ? window.crypto.randomUUID().replace(/-/g, '')
+                : 'HP' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+            }
+            const sent = sendToParent({
               type:'CBT_PHONE_EVENT',
+              eventId:pendingPhoneEventId,
               eventNumber:phoneEventCount,
               confidence,
               photoDataUrl
-            };
-            const sent=sendToParent(pendingPhonePayload);
-            lastPhoneSendAt=performance.now();
+            });
             setObjectStatus(phoneEventCount === 1
               ? 'HP terdeteksi. Foto bukti dan peringatan pertama sedang diproses.'
               : 'HP terdeteksi kembali. Peringatan kedua dan pengiriman jawaban sedang diproses.', true);
             if (!sent) {
-              phoneEventPending = true;
+              phoneEventPending = false;
               setObjectStatus('HP terdeteksi, tetapi halaman SIMAEXAM tidak menerima pesan. Hubungi pengawas.', true);
             }
           } else {
@@ -157,7 +151,6 @@ function stopObjectDetection() {
   monitoringEnabled = false;
   if (objectDetectionTimer) clearInterval(objectDetectionTimer);
   objectDetectionTimer = null;
-  if (objectDetector) objectDetector.close();
   objectDetector = null;
   consecutivePhoneFrames = 0;
   phoneWasVisible = false;
@@ -184,22 +177,29 @@ window.addEventListener('message', async (event) => {
   if (!parentOrigin || event.origin !== parentOrigin) return;
   if (data.type === 'CBT_START_MONITORING') {
     if (!verificationCompleted || !objectDetector || !stream) return;
-    phoneEventCount = Number(data.phoneCount) || 0;
-    startObjectDetection();
+    startObjectDetection(data.phoneEventCount);
     status('Ujian berlangsung. Kamera memantau objek HP.', true);
     sendToParent({ type:'CBT_MONITORING_STARTED' });
     return;
   }
   if (data.type === 'CBT_PHONE_EVENT_ACK') {
-    if (!pendingPhonePayload || data.eventId!==pendingPhonePayload.eventId) return;
-    if (data.success!==true) {
-      setObjectStatus('Log belum tersimpan. Bukti yang sama akan dikirim ulang.',true);
-      return;
+    phoneEventPending = false;
+    if (data.success === false) {
+      // Server belum mencatat kejadian: izinkan deteksi yang sama dicoba kembali.
+      phoneEventCount = Math.max(0, phoneEventCount - 1);
+      phoneRearmed = true;
+      consecutivePhoneFrames = 0;
+      phoneAbsentFrames = 0;
+      monitoringEnabled = phoneEventCount < 2;
+      setObjectStatus('Pencatatan pelanggaran gagal. Sistem akan mencoba kembali setelah objek tidak terlihat.', true);
+    } else if (Number.isFinite(Number(data.occurrence))) {
+      pendingPhoneEventId = null;
+      phoneEventCount = Math.max(phoneEventCount, Math.min(2, Number(data.occurrence)));
+      monitoringEnabled = phoneEventCount < 2;
+      setObjectStatus(phoneEventCount >= 2
+        ? 'Pelanggaran kedua tercatat. Pemantauan HP dihentikan.'
+        : 'Pelanggaran pertama tercatat. Pemantauan berlanjut.', true);
     }
-    phoneEventPending=false;
-    pendingPhonePayload=null;
-    phoneEventCount=Number(data.occurrence);
-    monitoringEnabled=phoneEventCount<2;
     return;
   }
   if (data.type === 'CBT_STOP_MONITORING') {
@@ -320,10 +320,6 @@ verifyBtn.addEventListener('click', async () => {
     sendResult(false, 'Verifikasi wajah gagal.');
   }
 });
-setInterval(() => {
-  if (verificationCompleted && stream && stream.getVideoTracks().some(t => t.readyState==='live')) sendToParent({type:'CBT_CAMERA_HEARTBEAT'});
-  else if (verificationCompleted) sendToParent({type:'CBT_CAMERA_STOPPED'});
-},3000);
 window.addEventListener('beforeunload', () => {
   stopCamera();
   sendToParent({ type:'CBT_CAMERA_STOPPED' });
