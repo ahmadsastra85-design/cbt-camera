@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Kamera AI SIMAEXAM</title>
-<meta name="simaexam-camera-build" content="20261113-r3">
+<meta name="simaexam-camera-build" content="20261114-r4">
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;width:100%;height:100%;max-width:100%;max-height:100%;overflow:hidden!important;overscroll-behavior:none;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif}
@@ -28,7 +28,7 @@
 <body>
 <main>
   <h1>Kamera AI SIMAEXAM</h1>
-  <p class="note">Kamera memverifikasi keberadaan wajah tanpa mengambil foto wajah, lalu memantau objek HP selama ujian. Foto hanya diambil sebagai bukti deteksi HP pertama.</p>
+  <p class="note">Halaman kamera mandiri SIMAEXAM. Verifikasi mendeteksi satu wajah tanpa mengambil foto wajah, lalu memantau objek HP selama ujian. Foto hanya diambil sebagai bukti deteksi HP pertama.</p>
   <div class="video-wrap">
     <video id="video" autoplay muted playsinline></video>
   </div>
@@ -36,8 +36,7 @@
   <div id="objectStatus" role="status" aria-live="polite">Deteksi objek HP belum aktif.</div>
 </main>
 <script type="module">
-import { FaceDetector, ObjectDetector, FilesetResolver } from
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+let FaceDetector, ObjectDetector, FilesetResolver;
 
 const video = document.getElementById('video');
 const statusBox = document.getElementById('status');
@@ -192,8 +191,19 @@ async function activateCamera() {
   try {
     if (!window.isSecureContext) throw new Error('Halaman kamera harus menggunakan HTTPS.');
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Browser tidak menyediakan akses kamera.');
+      throw new Error('Browser tidak menyediakan akses kamera. Buka halaman kamera mandiri melalui HTTPS di Chrome terbaru.');
     }
+
+    // Import dinamis agar kegagalan CDN/MediaPipe dapat ditampilkan sebagai pesan,
+    // bukan membuat seluruh modul berhenti sebelum komunikasi dengan SIMAEXAM aktif.
+    status('Menghubungkan pustaka AI MediaPipe...');
+    const visionModule = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14'
+    );
+    FaceDetector = visionModule.FaceDetector;
+    ObjectDetector = visionModule.ObjectDetector;
+    FilesetResolver = visionModule.FilesetResolver;
+
     const cameraStream = await navigator.mediaDevices.getUserMedia({
       audio:false,
       video:{facingMode:{ideal:'user'},width:{ideal:640},height:{ideal:480}}
@@ -230,11 +240,11 @@ async function activateCamera() {
     const name = error?.name || '';
     let message = error?.message || String(error);
     if (name === 'NotAllowedError' || name === 'SecurityError') {
-      message = 'Browser menolak izin kamera pada halaman ini. Periksa ikon kamera di bilah alamat dan izinkan akses. Jika halaman ini berada di dalam iframe, gunakan tombol Kamera Mandiri di SIMAEXAM agar kamera dibuka langsung pada tab/jendela HTTPS.';
+      message = 'Browser menolak izin kamera. Pada tab GitHub Pages, klik ikon pengaturan situs di kiri alamat, ubah Kamera menjadi Izinkan, lalu muat ulang tab kamera dan coba lagi.';
     } else if (name === 'NotFoundError') {
       message = 'Kamera tidak ditemukan pada perangkat.';
     } else if (name === 'NotReadableError') {
-      message = 'Kamera sedang digunakan aplikasi lain. Tutup aplikasi kamera lain dan coba kembali.';
+      message = 'Kamera sedang digunakan aplikasi lain atau tidak dapat dibuka. Tutup aplikasi Kamera/Zoom/Meet dan tab lain yang memakai kamera, lalu coba kembali.';
     }
     status('Kamera gagal diaktifkan: ' + message);
     sendToParent({type:'CBT_CAMERA_ERROR', message});
