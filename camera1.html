@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Kamera AI SIMAEXAM</title>
-<meta name="simaexam-camera-build" content="20261114-r4">
+<meta name="simaexam-camera-build" content="20261114-r5">
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;width:100%;height:100%;max-width:100%;max-height:100%;overflow:hidden!important;overscroll-behavior:none;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif}
@@ -303,9 +303,17 @@ window.addEventListener('message', async event => {
     return;
   }
   if (data.type === 'CBT_START_MONITORING') {
-    if (!verificationCompleted || !objectDetector || !stream) return;
-    startObjectDetection(data.phoneEventCount || 0);
-    status('Ujian berlangsung. Kamera memantau objek HP.', true);
+    if (!verificationCompleted || !objectDetector || !stream || !video.srcObject) {
+      sendToParent({type:'CBT_MONITORING_ERROR',
+        message:'Kamera atau model AI belum siap setelah verifikasi. Aktifkan ulang kamera.'});
+      return;
+    }
+    // Perintah dapat dikirim ulang oleh SIMAEXAM sampai menerima ACK.
+    // Jangan reset hitungan/peristiwa bila pemantauan sudah berjalan.
+    if (!monitoringEnabled || !objectDetectionTimer) {
+      startObjectDetection(data.phoneEventCount || 0);
+    }
+    status('Ujian berlangsung. Kamera tetap menyala dan memantau objek HP.', true);
     sendToParent({type:'CBT_MONITORING_STARTED'});
     return;
   }
