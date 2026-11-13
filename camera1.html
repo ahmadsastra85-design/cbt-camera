@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Kamera AI SIMAEXAM</title>
-<meta name="simaexam-camera-build" content="20261113-r2">
+<meta name="simaexam-camera-build" content="20261113-r3">
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;width:100%;height:100%;max-width:100%;max-height:100%;overflow:hidden!important;overscroll-behavior:none;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif}
@@ -28,7 +28,7 @@
 <body>
 <main>
   <h1>Kamera AI SIMAEXAM</h1>
-  <p class="note">Kamera digunakan untuk verifikasi wajah dan pemantauan objek selama ujian. Video diproses di perangkat dan tidak direkam.</p>
+  <p class="note">Kamera memverifikasi keberadaan wajah tanpa mengambil foto wajah, lalu memantau objek HP selama ujian. Foto hanya diambil sebagai bukti deteksi HP pertama.</p>
   <div class="video-wrap">
     <video id="video" autoplay muted playsinline></video>
   </div>
@@ -255,12 +255,11 @@ async function verifyFace() {
     if (detections.length > 1) {
       throw new Error('Terdeteksi lebih dari satu wajah. Pastikan hanya satu peserta terlihat.');
     }
-    status('Wajah terdeteksi. Mengambil foto verifikasi...', true);
-    const photoDataUrl = captureFacePhoto();
+    status('Wajah terdeteksi. Verifikasi berhasil tanpa mengambil foto wajah.', true);
     verificationCompleted = true;
     sendToParent({type:'CBT_FACE_RESULT', success:true,
-      message:'Verifikasi wajah berhasil.', photoDataUrl});
-    status('Verifikasi berhasil. Menunggu konfirmasi SIMAEXAM untuk memulai ujian.', true);
+      message:'Verifikasi wajah berhasil. Foto wajah tidak diambil atau disimpan.'});
+    status('Verifikasi berhasil tanpa foto. Menunggu SIMAEXAM memulai ujian.', true);
   } catch (error) {
     status('Verifikasi gagal: ' + (error?.message || String(error)));
     sendToParent({type:'CBT_FACE_RESULT', success:false,
