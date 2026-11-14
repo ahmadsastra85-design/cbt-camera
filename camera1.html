@@ -21,7 +21,7 @@
 <body>
 <main>
   <h1>Verifikasi Wajah CBT</h1>
-  <p class="note">Foto wajah akan diambil saat verifikasi dan disimpan untuk pengawasan ujian. Lanjutkan hanya setelah membaca pemberitahuan madrasah. Halaman ini harus dibuka melalui HTTPS.</p>
+  <p class="note">Foto wajah akan diambil saat verifikasi dan disimpan untuk pengawasan ujian. Deteksi HP hanyalah pemeriksaan benda yang masuk bingkai kamera, bukan deteksi HP lain di luar pandangan kamera. Lanjutkan hanya setelah membaca pemberitahuan madrasah. Halaman ini harus dibuka melalui HTTPS.</p>
   <video id="video" autoplay muted playsinline></video>
   <div id="status" role="status" aria-live="polite">Tekan Aktifkan Kamera untuk memulai.</div>
   <div id="objectStatus" role="status" aria-live="polite">Deteksi objek HP belum aktif.</div>
@@ -47,8 +47,8 @@ let phoneWasVisible = false;
 let phoneObservationSent = false;
 let lastVideoFrameTime = -1;
 const OBJECT_DETECTION_INTERVAL_MS = 500;
-const PHONE_CONFIDENCE_THRESHOLD = 0.80;
-const PHONE_REQUIRED_CONSECUTIVE_FRAMES = 3;
+const PHONE_CONFIDENCE_THRESHOLD = 0.60; // Diagnostik saja; bukan bukti kecurangan.
+const PHONE_REQUIRED_CONSECUTIVE_FRAMES = 2;
 
 function status(message, ok=false) {
   statusBox.textContent = message;
@@ -65,7 +65,7 @@ function startObjectDetection() {
   phoneWasVisible = false;
   phoneObservationSent = false;
   lastVideoFrameTime = -1;
-  setObjectStatus('Deteksi HP aktif selama verifikasi awal saja. Pemrosesan lokal tanpa penyimpanan video; satu indikasi dapat tercatat di dashboard.');
+  setObjectStatus('Model deteksi HP berhasil dimuat. Arahkan HP uji lain ke dalam bingkai kamera selama beberapa detik. Ambang indikasi 60%, minimal 2 frame; bukan bukti kecurangan.');
   objectDetectionTimer = setInterval(() => {
     if (!objectDetector || !stream || video.readyState < 2) return;
     // Jangan menghitung gambar video yang sama sebagai tiga deteksi berbeda.
@@ -106,7 +106,8 @@ function startObjectDetection() {
       } else {
         consecutivePhoneFrames = 0;
         phoneWasVisible = false;
-        setObjectStatus('Tidak ada objek HP yang memenuhi ambang deteksi. Pemantauan berjalan tanpa merekam video.');
+        const top = detections.flatMap(item => item.categories || []).sort((a,b) => Number(b.score||0)-Number(a.score||0))[0];
+        setObjectStatus('Model aktif, tidak ada HP di atas ambang. Objek teratas: ' + (top ? top.categoryName + ' ' + Math.round(Number(top.score||0)*100) + '%' : 'tidak ada') + '. Pastikan HP berada di depan kamera.');
       }
     } catch (error) {
       setObjectStatus('Deteksi objek mengalami kendala: ' + (error?.message || String(error)));
@@ -190,7 +191,7 @@ startBtn.addEventListener('click', async () => {
       startObjectDetection();
     } catch (objectError) {
       objectDetector = null;
-      setObjectStatus('Deteksi HP tidak tersedia di perangkat ini. Verifikasi wajah tetap dapat dilanjutkan.');
+      setObjectStatus('Model HP GAGAL dimuat: ' + String(objectError?.message || objectError).slice(0,180) + '. Periksa jaringan dan hosting; wajah tetap dapat diverifikasi.');
       console.warn('Model deteksi objek tidak tersedia:', objectError);
     }
     status('Kamera wajah siap. Pastikan hanya wajah peserta yang terlihat, lalu tekan Verifikasi.');
